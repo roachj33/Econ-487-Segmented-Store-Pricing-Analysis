@@ -1,0 +1,479 @@
+---
+title: "Econ 487 HW 9"
+author: "Joey Roach"
+date: "December 8, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+``` {r}
+library(plyr)
+library(dplyr)
+library(rpart)
+library(rpart.plot)
+library(maptree)
+library(reshape2)
+library(randomForest)
+library(ggplot2)
+library(glmnet)
+
+# Get OJ data
+oj <- read.csv("oj.csv")
+
+# Get lagged features
+lag_1 <- oj
+lag_1$week <- lag_1$week + 1
+lag_2 <- oj
+lag_2$week <- lag_2$week + 2
+lag_3 <- oj
+lag_3$week <- lag_3$week + 3
+
+myvars <- c("store", "week", "brand", "price", "logmove", "feat")
+lag_1 <- lag_1[myvars]
+lag_1 <- lag_1 %>%
+  rename(price_t1 = price, feat_t1 = feat, logmove_t1 = logmove)
+names(lag_1)
+lag_2 <- lag_2[myvars]
+lag_2 <- lag_2 %>%
+  rename(price_t2 = price, feat_t2 = feat, logmove_t2 = logmove)
+lag_3 <- lag_3[myvars]
+lag_3 <- lag_3 %>%
+  rename(price_t3 = price, feat_t3 = feat, logmove_t3 = logmove)
+
+# Merge data back together
+complete <- merge(oj, lag_1, by=c("store", "brand", "week"))
+complete <- merge(complete, lag_2, by=c("store", "brand", "week"))
+complete <- merge(complete, lag_3, by=c("store", "brand", "week"))
+names(complete)
+rm(lag_1, lag_2, lag_3)
+# Drop unknown variables
+complete <- complete %>%
+  select(-c("SSTRDIST", "SSTRVOL", "CPWVOL5", "CPDIST5"))
+names(complete)
+
+# Create weighted sales price for OJ by store
+complete$Q <- exp(complete$logmove)
+temp <- complete[c("store", "brand", "week", "feat", "price", "Q")]
+temp <- ddply(temp, c("store", "week"), function(x)
+  c(weighted_mean = weighted.mean(x$price, x$Q)))
+complete <- merge(complete, temp, by=c("store", "week"))
+names(complete)
+head(complete)
+
+# Classify each store
+class_data <- subset(complete, brand == "dominicks")
+fit <- rpart(weighted_mean ~ AGE60 + EDUC + ETHNIC + INCOME +
+               HVAL150 + HHLARGE + WORKWOM, data = class_data,
+             method = "anova", cp=0.007)
+draw.tree(fit)
+complete$leaf <- fit$where
+head(complete)
+
+# Subset data into leaves
+unique(complete$leaf)
+leaf_one <- subset(complete, leaf == 2)
+leaf_two <- subset(complete, leaf == 4)
+leaf_three <- subset(complete, leaf == 5)
+
+# For each leaf, get brand-level data
+dom_one <- subset(leaf_one, brand == "dominicks")
+dom_two <- subset(leaf_two, brand == "dominicks")
+dom_three <- subset(leaf_three, brand == "dominicks")
+trop_one <- subset(leaf_one, brand == "tropicana")
+trop_two <- subset(leaf_two, brand == "tropicana")
+trop_three <- subset(leaf_three, brand == "tropicana")
+mm_one <- subset(leaf_one, brand == "minute.maid")
+mm_two <- subset(leaf_two, brand == "minute.maid")
+mm_three <- subset(leaf_three, brand == "minute.maid")
+
+# Rename each dominicks leaf
+dom_one <- dom_one %>%
+  rename(logmove_d = logmove, price_d = price, feat_d = feat,
+         price_t1_d = price_t1, logmove_t1_d = logmove_t1,
+         feat_t1_d = feat_t1, price_t2_d = price_t2,
+         logmove_t2_d = logmove_t2, feat_t2_d = feat_t2,
+         logmove_t3_d = logmove_t3, price_t3_d = price_t3,
+         feat_t3_d = feat_t3
+         )
+dom_two <- dom_two %>%
+  rename(logmove_d = logmove, price_d = price, feat_d = feat,
+         price_t1_d = price_t1, logmove_t1_d = logmove_t1,
+         feat_t1_d = feat_t1, price_t2_d = price_t2,
+         logmove_t2_d = logmove_t2, feat_t2_d = feat_t2,
+         logmove_t3_d = logmove_t3, price_t3_d = price_t3,
+         feat_t3_d = feat_t3)
+dom_three <- dom_three %>%
+  rename(logmove_d = logmove, price_d = price, feat_d = feat,
+         price_t1_d = price_t1, logmove_t1_d = logmove_t1,
+         feat_t1_d = feat_t1, price_t2_d = price_t2,
+         logmove_t2_d = logmove_t2, feat_t2_d = feat_t2,
+         logmove_t3_d = logmove_t3, price_t3_d = price_t3,
+         feat_t3_d = feat_t3)
+
+# Rename each Tropicana leaf
+trop_one <- trop_one %>%
+  rename(logmove_t = logmove, price_t = price, feat_t = feat,
+         price_t1_t = price_t1, logmove_t1_t = logmove_t1,
+         feat_t1_t = feat_t1, logmove_t2_t = logmove_t2,
+         price_t2_t = price_t2, feat_t2_t = feat_t2,
+         logmove_t3_t = logmove_t3, price_t3_t = price_t3,
+         feat_t3_t = feat_t3)
+trop_two <- trop_two %>%
+  rename(logmove_t = logmove, price_t = price, feat_t = feat,
+         price_t1_t = price_t1, logmove_t1_t = logmove_t1,
+         feat_t1_t = feat_t1, logmove_t2_t = logmove_t2,
+         price_t2_t = price_t2, feat_t2_t = feat_t2,
+         logmove_t3_t = logmove_t3, price_t3_t = price_t3,
+         feat_t3_t = feat_t3)
+trop_three <- trop_three %>%
+  rename(logmove_t = logmove, price_t = price, feat_t = feat,
+         price_t1_t = price_t1, logmove_t1_t = logmove_t1,
+         feat_t1_t = feat_t1, logmove_t2_t = logmove_t2,
+         price_t2_t = price_t2, feat_t2_t = feat_t2,
+         logmove_t3_t = logmove_t3, price_t3_t = price_t3,
+         feat_t3_t = feat_t3)
+
+# Rename each Minute Maid leaf
+mm_one <- mm_one %>%
+  rename(logmove_mm = logmove, price_mm = price, feat_mm = feat,
+         logmove_t1_mm = logmove_t1, price_t1_mm = price_t1,
+         feat_t1_mm = feat_t1, logmove_t2_mm = logmove_t2,
+         price_t2_mm = price_t2, feat_t2_mm = feat_t2,
+         logmove_t3_mm = logmove_t3, price_t3_mm = price_t3,
+         feat_t3_mm = feat_t3)
+mm_two <- mm_two %>%
+  rename(logmove_mm = logmove, price_mm = price, feat_mm = feat,
+         logmove_t1_mm = logmove_t1, price_t1_mm = price_t1,
+         feat_t1_mm = feat_t1, logmove_t2_mm = logmove_t2,
+         price_t2_mm = price_t2, feat_t2_mm = feat_t2,
+         logmove_t3_mm = logmove_t3, price_t3_mm = price_t3,
+         feat_t3_mm = feat_t3)
+mm_three <- mm_three %>%
+  rename(logmove_mm = logmove, price_mm = price, feat_mm = feat,
+         logmove_t1_mm = logmove_t1, price_t1_mm = price_t1,
+         feat_t1_mm = feat_t1, logmove_t2_mm = logmove_t2,
+         price_t2_mm = price_t2, feat_t2_mm = feat_t2,
+         logmove_t3_mm = logmove_t3, price_t3_mm = price_t3,
+         feat_t3_mm = feat_t3)
+
+# Create temp dfs to merge together other brands' data
+vars_d <- c("logmove_d", "price_d", "feat_d", "logmove_t1_d",
+            "price_t1_d", "feat_t1_d", "logmove_t2_d",
+            "price_t2_d", "feat_t2_d", "logmove_t3_d",
+            "price_t3_d", "feat_t3_d", "store", "week")
+vars_t <- c("logmove_t", "price_t", "feat_t", "logmove_t1_t",
+            "price_t1_t", "feat_t1_t", "logmove_t2_t", "price_t2_t",
+            "feat_t2_t", "logmove_t3_t", "price_t3_t",
+            "feat_t3_t", "store", "week")
+vars_mm <- c("logmove_mm", "price_mm", "feat_mm", "logmove_t1_mm",
+             "price_t1_mm", "feat_t1_mm", "logmove_t2_mm", "price_t2_mm",
+             "feat_t2_mm", "logmove_t3_mm", "price_t3_mm",
+             "feat_t3_mm", "store", "week")
+temp_d_one <- dom_one[vars_d]
+temp_d_two <- dom_two[vars_d]
+temp_d_three <- dom_three[vars_d]
+
+temp_t_one <- trop_one[vars_t]
+temp_t_two <- trop_two[vars_t]
+temp_t_three <- trop_three[vars_t]
+
+temp_mm_one <- mm_one[vars_mm]
+temp_mm_two <- mm_two[vars_mm]
+temp_mm_three <- mm_three[vars_mm]
+
+
+# Merge data back together, for each leaf
+dom_one <- merge(dom_one, temp_t_one, by = c("store", "week"))
+dom_one <- merge(dom_one, temp_mm_one, by = c("store", "week"))
+dom_two <- merge(dom_two, temp_t_two, by = c("store", "week"))
+dom_two <- merge(dom_two, temp_mm_two, by = c("store", "week"))
+dom_three <- merge(dom_three, temp_t_three, by = c("store", "week"))
+dom_three <- merge(dom_three, temp_mm_three, by = c("store", "week"))
+
+mm_one <- merge(mm_one, temp_d_one, by = c("store", "week"))
+mm_one <- merge(mm_one, temp_t_one, by = c("store", "week"))
+mm_two <- merge(mm_two, temp_d_two, by = c("store", "week"))
+mm_two <- merge(mm_two, temp_t_two, by = c("store", "week"))
+mm_three <- merge(mm_three, temp_d_three, by = c("store", "week"))
+mm_three <- merge(mm_three, temp_t_three, by = c("store", "week"))
+
+trop_one <- merge(trop_one, temp_d_one, by = c("store", "week"))
+trop_one <- merge(trop_one, temp_mm_one, by = c("store", "week"))
+trop_two <- merge(trop_two, temp_d_two, by = c("store", "week"))
+trop_two <- merge(trop_two, temp_mm_two, by = c("store", "week"))
+trop_three <- merge(trop_three, temp_d_three, by = c("store", "week"))
+trop_three <- merge(trop_three, temp_mm_three, by = c("store", "week"))
+
+rm(temp_d_one, temp_d_two, temp_d_three, temp_mm_one, temp_mm_two,
+   temp_mm_three, temp_t_one, temp_t_two, temp_t_three, leaf_one,
+   leaf_two, leaf_three)
+
+### Training models
+# Define functions to get quantities/prices for each brand, for different
+# leaves
+get_dom_quant <- function(leaf_data) {
+  DQ <- leaf_data
+  DQ_rf <- randomForest(logmove_d ~ AGE60 + EDUC + ETHNIC + INCOME +
+                            HHLARGE + WORKWOM + HVAL150 + price_t1_d  +
+                            feat_t1_d + price_t2_d + feat_t2_d +
+                            price_t3_d + feat_t3_d + price_t1_t +
+                            feat_t1_t + price_t2_t + feat_t2_t +
+                          price_t3_t + feat_t3_t + price_t1_mm +
+                          feat_t1_mm + price_t2_mm + feat_t2_mm +
+                          price_t3_mm + feat_t3_mm + logmove_t1_d +
+                          logmove_t1_t + logmove_t1_mm, data = DQ,
+                          ntree = 100, keep.forest = TRUE)
+  DQ$pred_DQ <- predict(DQ_rf, DQ)
+  DQ$resid_DQ <- DQ$logmove_d - DQ$pred_DQ
+  return(DQ)
+}
+
+get_dom_price <- function(leaf_data) {
+  DP <- leaf_data
+  DP_rf <- randomForest(log(price_d) ~ AGE60 + EDUC + ETHNIC + INCOME +
+                            HHLARGE + WORKWOM + HVAL150 + price_t1_d  +
+                            feat_t1_d + price_t2_d + feat_t2_d +
+                            price_t3_d + feat_t3_d + price_t1_t +
+                            feat_t1_t + price_t2_t + feat_t2_t +
+                            price_t3_t + feat_t3_t + price_t1_mm +
+                            feat_t1_mm + price_t2_mm + feat_t2_mm +
+                            price_t3_mm + feat_t3_mm + logmove_t1_d +
+                          logmove_t1_mm + logmove_t1_t, data = DP,
+                          ntree = 100, keep.forest = TRUE)
+  DP$pred_DP <- predict(DP_rf, DP)
+  DP$resid_DP <- log(DP$price_d) - DP$pred_DP
+  return(DP)
+}
+
+get_trop_quant <- function(leaf_data) {
+  TQ <- leaf_data
+  TQ_rf <- randomForest(logmove_t ~ AGE60 + EDUC + ETHNIC + INCOME +
+                            HHLARGE + WORKWOM + HVAL150 + price_t1_d  +
+                            feat_t1_d + price_t2_d + feat_t2_d +
+                            price_t3_d + feat_t3_d + price_t1_t +
+                            feat_t1_t + price_t2_t + feat_t2_t +
+                            price_t3_t + feat_t3_t + price_t1_mm +
+                            feat_t1_mm + price_t2_mm + feat_t2_mm +
+                            price_t3_mm + feat_t3_mm + logmove_t1_d +
+                          logmove_t1_mm + logmove_t1_t, data = TQ,
+                          ntree = 100, keep.forest = TRUE)
+  TQ$pred_TQ <- predict(TQ_rf, TQ)
+  TQ$resid_TQ <- TQ$logmove_t - TQ$pred_TQ
+  return(TQ)
+}
+get_trop_price <- function(leaf_data) {
+  TP <- leaf_data
+  TP_rf <- randomForest(log(price_t) ~ AGE60 + EDUC + ETHNIC + INCOME +
+                            HHLARGE + WORKWOM + HVAL150 + price_t1_d  +
+                            feat_t1_d + price_t2_d + feat_t2_d +
+                            price_t3_d + feat_t3_d + price_t1_t +
+                            feat_t1_t + price_t2_t + feat_t2_t +
+                            price_t3_t + feat_t3_t + price_t1_mm +
+                            feat_t1_mm + price_t2_mm + feat_t2_mm +
+                            price_t3_mm + feat_t3_mm + logmove_t1_d +
+                          logmove_t1_t + logmove_t1_mm, data = TP,
+                          ntree = 100, keep.forest = TRUE)
+  TP$pred_TP <- predict(TP_rf, leaf_data)
+  TP$resid_TP <- log(TP$price_t) - TP$pred_TP
+  return(TP)
+}
+
+get_mm_quant <- function(leaf_data) {
+  MMQ <- leaf_data
+  MMQ_rf <- randomForest(logmove_mm ~ AGE60 + EDUC + ETHNIC + INCOME +
+                            HHLARGE + WORKWOM + HVAL150 + price_t1_d  +
+                            feat_t1_d + price_t2_d + feat_t2_d +
+                            price_t3_d + feat_t3_d + price_t1_t +
+                            feat_t1_t + price_t2_t + feat_t2_t +
+                            price_t3_t + feat_t3_t + price_t1_mm +
+                            feat_t1_mm + price_t2_mm + feat_t2_mm +
+                            price_t3_mm + feat_t3_mm + logmove_t1_d +
+                           logmove_t1_t + logmove_t1_mm, data = MMQ,
+                          ntree = 100, keep.forest = TRUE)
+  MMQ$pred_MMQ <- predict(MMQ_rf, MMQ)
+  MMQ$resid_MMQ <- MMQ$logmove_mm - MMQ$pred_MMQ
+  return(MMQ)
+}
+get_mm_price <- function(leaf_data) {
+  MMP <- leaf_data
+  MMP_rf <- randomForest(log(price_mm) ~ AGE60 + EDUC + ETHNIC + INCOME +
+                            HHLARGE + WORKWOM + HVAL150 + price_t1_d  +
+                            feat_t1_d + price_t2_d + feat_t2_d +
+                            price_t3_d + feat_t3_d + price_t1_t +
+                            feat_t1_t + price_t2_t + feat_t2_t +
+                            price_t3_t + feat_t3_t + price_t1_mm +
+                            feat_t1_mm + price_t2_mm + feat_t2_mm +
+                           price_t3_mm + feat_t3_mm + logmove_t1_d +
+                           logmove_t1_mm + logmove_t1_t, data = MMP,
+                          ntree = 100, keep.forest = TRUE)
+  MMP$pred_MMP <- predict(MMP_rf, MMP)
+  MMP$resid_MMP <- log(MMP$price_mm) - MMP$pred_MMP
+  return(MMP)
+}
+
+# Obtain data frames with predictions/residuals for each leaf/brand.
+DQ_one <- get_dom_quant(dom_one)
+DQ_two <- get_dom_quant(dom_two)
+DQ_three <- get_dom_quant(dom_three)
+DP_one <- get_dom_price(dom_one)
+DP_two <- get_dom_price(dom_two)
+DP_three <- get_dom_price(dom_three)
+MMQ_one <- get_mm_quant(mm_one)
+MMQ_two <- get_mm_quant(mm_two)
+MMQ_three <- get_mm_quant(mm_three)
+MMP_one <- get_mm_price(mm_one)
+MMP_two <- get_mm_price(mm_two)
+MMP_three <- get_mm_price(mm_three)
+TQ_one <- get_trop_quant(trop_one)
+TQ_two <- get_trop_quant(trop_two)
+TQ_three <- get_trop_quant(trop_three)
+TP_one <- get_trop_price(trop_one)
+TP_two <- get_trop_price(trop_two)
+TP_three <- get_trop_price(trop_three)
+
+
+# Some sanity checks
+
+fig_DQ_one <- ggplot(DQ_one, aes(pred_DQ, logmove_d)) + geom_point() +
+  geom_smooth(method = "lm")
+fig_DQ_one
+
+fig_TQ_two <- ggplot(TQ_two, aes(pred_TQ, logmove_t)) + geom_point() +
+  geom_smooth(method = "lm")
+fig_TQ_two
+
+# Merge residual prices into data frames
+temp_DP_one <- DP_one[c("store", "week", "resid_DP")]
+temp_DP_two <- DP_two[c("store", "week", "resid_DP")]
+temp_DP_three <- DP_three[c("store", "week", "resid_DP")]
+temp_MMP_one <- MMP_one[c("store", "week", "resid_MMP")]
+temp_MMP_two <- MMP_two[c("store", "week", "resid_MMP")]
+temp_MMP_three <- MMP_three[c("store", "week", "resid_MMP")]
+temp_TP_one <- TP_one[c("store", "week", "resid_TP")]
+temp_TP_two <- TP_two[c("store", "week", "resid_TP")]
+temp_TP_three <- TP_three[c("store", "week", "resid_TP")]
+
+DQ_one <- merge(DQ_one, temp_DP_one, by = c("store", "week"))
+DQ_one <- merge(DQ_one, temp_MMP_one, by = c("store", "week"))
+DQ_one <- merge(DQ_one, temp_TP_one, by = c("store", "week"))
+DQ_two <- merge(DQ_two, temp_DP_two, by = c("store", "week"))
+DQ_two <- merge(DQ_two, temp_MMP_two, by = c("store", "week"))
+DQ_two <- merge(DQ_two, temp_TP_two, by = c("store", "week"))
+DQ_three <- merge(DQ_three, temp_DP_three, by = c("store", "week"))
+DQ_three <- merge(DQ_three, temp_MMP_three, by = c("store", "week"))
+DQ_three <- merge(DQ_three, temp_TP_three, by = c("store", "week"))
+
+MMQ_one <- merge(MMQ_one, temp_DP_one, by = c("store", "week"))
+MMQ_one <- merge(MMQ_one, temp_MMP_one, by = c("store", "week"))
+MMQ_one <- merge(MMQ_one, temp_TP_one, by = c("store", "week"))
+MMQ_two <- merge(MMQ_two, temp_DP_two, by = c("store", "week"))
+MMQ_two <- merge(MMQ_two, temp_MMP_two, by = c("store", "week"))
+MMQ_two <- merge(MMQ_two, temp_TP_two, by = c("store", "week"))
+MMQ_three <- merge(MMQ_three, temp_DP_three, by = c("store", "week"))
+MMQ_three <- merge(MMQ_three, temp_MMP_three, by = c("store", "week"))
+MMQ_three <- merge(MMQ_three, temp_TP_three, by = c("store", "week"))
+
+TQ_one <- merge(TQ_one, temp_DP_one, by = c("store", "week"))
+TQ_one <- merge(TQ_one, temp_MMP_one, by = c("store", "week"))
+TQ_one <- merge(TQ_one, temp_TP_one, by = c("store", "week"))
+TQ_two <- merge(TQ_two, temp_DP_two, by = c("store", "week"))
+TQ_two <- merge(TQ_two, temp_MMP_two, by = c("store", "week"))
+TQ_two <- merge(TQ_two, temp_TP_two, by = c("store", "week"))
+TQ_three <- merge(TQ_three, temp_DP_three, by = c("store", "week"))
+TQ_three <- merge(TQ_three, temp_MMP_three, by = c("store", "week"))
+TQ_three <- merge(TQ_three, temp_TP_three, by = c("store", "week"))
+
+rm(temp_DP_one, temp_DP_two, temp_DP_three, temp_MMP_one, temp_MMP_two,
+   temp_MMP_three, temp_TP_one, temp_TP_two, temp_TP_three)
+
+# Residual-on-residual regressions (double ML)
+
+d_one_reg <- glm(resid_DQ ~ resid_DP + resid_MMP + resid_TP,
+                 data = DQ_one)
+d_two_reg <- glm(resid_DQ ~ resid_DP + resid_MMP + resid_TP,
+                 data = DQ_two)
+d_three_reg <- glm(resid_DQ ~ resid_DP + resid_MMP + resid_TP,
+                   data = DQ_three)
+
+mm_one_reg <- glm(resid_MMQ ~ resid_DP + resid_MMP + resid_TP,
+                  data = MMQ_one)
+mm_two_reg <- glm(resid_MMQ ~ resid_DP + resid_MMP + resid_TP,
+                  data = MMQ_two)
+mm_three_reg <- glm(resid_MMQ ~ resid_DP + resid_MMP + resid_TP,
+                    data = MMQ_three)
+
+t_one_reg <- glm(resid_TQ ~ resid_DP + resid_MMP + resid_TP,
+                 data = TQ_one)
+t_two_reg <- glm(resid_TQ ~ resid_DP + resid_MMP + resid_TP,
+                 data = TQ_two)
+t_three_reg <- glm(resid_TQ ~ resid_DP + resid_MMP + resid_TP,
+                   data = TQ_three)
+
+test_pred <- predict(d_one_reg, DQ_one)
+mean((test_pred - DQ_one$resid_DQ) ^ 2)
+summary(t_one_reg)
+# Create 3x3 elascticity matrices for each leaf
+elast_matrix_one <- rbind(c(d_one_reg$coefficients["resid_DP"],
+                            d_one_reg$coefficients["resid_MMP"],
+                            d_one_reg$coefficients["resid_TP"]),
+                          c(mm_one_reg$coefficients["resid_DP"],
+                            mm_one_reg$coefficients["resid_MMP"],
+                            mm_one_reg$coefficients["resid_TP"]),
+                          c(t_one_reg$coefficients["resid_DP"],
+                            t_one_reg$coefficients["resid_MMP"],
+                            t_one_reg$coefficients["resid_TP"]))
+rownames(elast_matrix_one) <- c("Dominicks", "Minute Maid",
+                                "Tropicana")
+colnames(elast_matrix_one) <- c("Residual Dom P", "Residual MM P",
+                                "Residual Trop P")
+elast_matrix_one
+elast_matrix_two <- rbind(c(d_two_reg$coefficients["resid_DP"],
+                            d_two_reg$coefficients["resid_MMP"],
+                            d_two_reg$coefficients["resid_TP"]),
+                          c(mm_two_reg$coefficients["resid_DP"],
+                            mm_two_reg$coefficients["resid_MMP"],
+                            mm_two_reg$coefficients["resid_TP"]),
+                          c(t_two_reg$coefficients["resid_DP"],
+                            t_two_reg$coefficients["resid_MMP"],
+                            t_two_reg$coefficients["resid_TP"]))
+rownames(elast_matrix_two) <- c("Dominicks", "Minute Maid",
+                                "Tropicana")
+colnames(elast_matrix_two) <- c("Residual Dom P", "Residual MM P",
+                                "Residual Trop P")
+elast_matrix_two
+elast_matrix_three <- rbind(c(d_three_reg$coefficients["resid_DP"],
+                            d_three_reg$coefficients["resid_MMP"],
+                            d_three_reg$coefficients["resid_TP"]),
+                          c(mm_three_reg$coefficients["resid_DP"],
+                            mm_three_reg$coefficients["resid_MMP"],
+                            mm_three_reg$coefficients["resid_TP"]),
+                          c(t_three_reg$coefficients["resid_DP"],
+                            t_three_reg$coefficients["resid_MMP"],
+                            t_three_reg$coefficients["resid_TP"]))
+rownames(elast_matrix_three) <- c("Dominicks", "Minute Maid",
+                                "Tropicana")
+colnames(elast_matrix_three) <- c("Residual Dom P", "Residual MM P",
+                                "Residual Trop P")
+elast_matrix_three
+
+# Lets compare the results from DQ_one to an OLS regression
+ols_dq <- glm(logmove_d ~ AGE60 + EDUC + ETHNIC + INCOME + HHLARGE +
+                WORKWOM + HVAL150 + price_t1_d + feat_t1_d +
+                price_t2_d + feat_t2_d + price_t2_d + price_t3_d +
+                feat_t3_d + price_t1_t + feat_t1_t + price_t2_t +
+                feat_t2_t + price_t3_t + feat_t3_t + price_t1_mm +
+                feat_t1_mm + price_t2_mm + feat_t2_mm +
+                price_t3_mm + feat_t3_mm +logmove_t1_d +
+                logmove_t1_t + logmove_t1_mm, data = dom_one)
+ols.pred <- predict(ols_dq, dom_one)
+ols.resid <- dom_one$logmove_d - ols.pred
+DQ_one$ols_resid <- ols.resid
+graph <- ggplot(DQ_one, aes(ols_resid, resid_DQ)) +
+  geom_point(aes(color = factor(brand))) +
+  coord_cartesian(xlim = c(-4, 4), ylim = c(-2,4)) +
+  geom_smooth(method = "lm")
+graph
+```
